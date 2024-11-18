@@ -1,19 +1,40 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Ball, createBall } from '../components/Ball';
 
 interface GameLoopProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   onScoreUpdate: (score: number) => void;
+  onLevelUpdate: (level: number) => void;
+  onProgressUpdate: (progress: number) => void;
   onGameOver: () => void;
+  initialLevel: number;
 }
 
-export const useGameLoop = ({ canvasRef, onScoreUpdate, onGameOver }: GameLoopProps) => {
+
+export const useGameLoop = ({ canvasRef, onScoreUpdate, onLevelUpdate, onProgressUpdate, onGameOver, initialLevel }: GameLoopProps) => {
   const playerRef = useRef({ x: 0, y: 0 });
   const ballsRef = useRef<Ball[]>([]);
   const scoreRef = useRef(0);
+  const levelRef = useRef(0);
   const animationFrameRef = useRef(0);
-  const lastBallTimeRef = useRef(Date.now());
+  const lastBallTimeRef = useRef(Date.now() - 10000);
   const isInitializedRef = useRef(false);
+  const levelInterval = 7500; // 7.5秒
+  const ballspeed = 0.5;
+
+  // ここに追加
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // 初期ボールの生成
+    for (let i = 0; i < 3 * initialLevel - 3; i++) {
+      setTimeout(() => {
+      ballsRef.current.push(createBall(canvas.width, ballspeed));
+    }, i * 50 + 3000); // 0.1秒ごとに生成
+    levelRef.current = initialLevel - 1;
+  }
+  }, []); // 依存配列を空にして初回のみ実行
 
   const startGameLoop = useCallback(() => {
     const canvas = canvasRef.current;
@@ -49,18 +70,28 @@ export const useGameLoop = ({ canvasRef, onScoreUpdate, onGameOver }: GameLoopPr
       ctx.fillStyle = 'black';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+      // Create new 3 balls every 7.5 seconds and increment level
+      const now = Date.now();
+      const elapsed = now - lastBallTimeRef.current;
+      const progress = (elapsed / levelInterval) * 100;
+      onProgressUpdate(progress);
+
+      if (progress >= 100) {
+        for (let i = 0; i < 3; i++) {
+          setTimeout(() => {
+            ballsRef.current.push(createBall(canvas.width, ballspeed));
+          }, i * 300); // Delay each ball by 300ms
+        }
+        lastBallTimeRef.current = now;
+        levelRef.current += 1;
+        onLevelUpdate(levelRef.current);
+      }
+
       // Draw player
       ctx.beginPath();
-      ctx.arc(playerRef.current.x, playerRef.current.y, 10, 0, Math.PI * 2);
+      ctx.arc(playerRef.current.x, playerRef.current.y, 8, 0, Math.PI * 2);
       ctx.fillStyle = 'red';
       ctx.fill();
-
-      // Create new balls every 3 seconds
-      const now = Date.now();
-      if (now - lastBallTimeRef.current > 3000) {
-        ballsRef.current.push(createBall(canvas.width));
-        lastBallTimeRef.current = now;
-      }
 
       // Update and draw balls
       ballsRef.current.forEach((ball) => {
@@ -73,7 +104,7 @@ export const useGameLoop = ({ canvasRef, onScoreUpdate, onGameOver }: GameLoopPr
         // Reset ball position when it reaches bottom and increment score
         if (ball.y > canvas.height) {
           ball.y = 0;
-          ball.x = Math.random() * canvas.width;
+          //ball.x = Math.random() * canvas.width;
           scoreRef.current += 1;
           onScoreUpdate(scoreRef.current);
         }
@@ -89,12 +120,19 @@ export const useGameLoop = ({ canvasRef, onScoreUpdate, onGameOver }: GameLoopPr
         const dy = ball.y - playerRef.current.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
-        if (distance < 18) {
-          onGameOver();
+        if (distance < 14) { // 判定のサイズ
           const highScore = localStorage.getItem('highScore') || '0';
           if (scoreRef.current > parseInt(highScore)) {
             localStorage.setItem('highScore', scoreRef.current.toString());
           }
+
+          // chack is high level and save
+          const currentHighLevel = parseInt(localStorage.getItem('highLevel') || '1');
+          if (levelRef.current > currentHighLevel) {
+            localStorage.setItem('highLevel', levelRef.current.toString());
+          }
+          onGameOver();
+          stopGameLoop();
           return;
         }
       });
@@ -107,7 +145,7 @@ export const useGameLoop = ({ canvasRef, onScoreUpdate, onGameOver }: GameLoopPr
     return () => {
       canvas.removeEventListener('mousemove', handleMouseMove);
     };
-  }, [canvasRef, onGameOver, onScoreUpdate]);
+  }, [canvasRef, onGameOver, onScoreUpdate, onLevelUpdate]);
 
   const stopGameLoop = useCallback(() => {
     cancelAnimationFrame(animationFrameRef.current);
